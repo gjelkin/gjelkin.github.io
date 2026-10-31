@@ -161,6 +161,14 @@ textarea{width:100%;min-height:110px;border-radius:var(--r);border:1px solid var
 .fu{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:14px}
 .fu label{display:flex;align-items:center;gap:6px}
 .fu input{width:20px;height:20px;accent-color:var(--accent)}
+.want{color:#c98a00}
+.btn.know-on{background:var(--surface-2);border-color:var(--ink-3);color:var(--ink)}
+.known{display:inline-block;margin-left:6px;font-family:var(--f-body,inherit);font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2);border:1px solid var(--line);border-radius:6px;padding:1px 5px;vertical-align:2px}
+.absent{color:var(--ink-3);font-weight:400;font-size:.9em}
+.legend{white-space:nowrap}
+.nowtxt{color:#b4233c;font-weight:600}
+.btn.want-on{background:#fff4d6;border-color:#e0b44a;color:#7a5200}
+.pchip.want{border-color:#e0b44a;background:#fff8e6;color:#5c3d00}
 .note.flag{background:#fff4e0;color:#7a4b00}
 .note{font-size:13px;color:var(--ink-2);background:var(--accent-soft);border-radius:8px;padding:8px 10px;margin-top:10px}
 .mails{font-family:var(--f-mono);font-size:13px;user-select:all}
@@ -183,7 +191,7 @@ textarea{width:100%;min-height:110px;border-radius:var(--r);border:1px solid var
       <button role="tab" data-tab="people" aria-selected="true">People</button>
       <button role="tab" data-tab="programs" aria-selected="false">Programs</button>
       <button role="tab" data-tab="schedule" aria-selected="false">Schedule</button>
-      <button role="tab" data-tab="met" aria-selected="false">Met<span class="count" id="metCount"></span></button>
+      <button role="tab" data-tab="met" aria-selected="false">My list<span class="count" id="metCount"></span></button>
     </nav>
   </div>
 </header>
@@ -227,10 +235,10 @@ function avatar(p, opts){ opts=opts||{}; const box=el('div',{class:'av'+(opts.cl
 
 /* ---------- Sessions (CNS 2026 program) ---------- */
 let S = null; // {sessions, appear}
-const sessReady = fetch('sessions.json').then(r=>r.json()).then(j=>{ S=j; S.byPerson=j.appear; S.sessPeople={}; S.talks={}; for(const pid in j.appear){ j.appear[pid].forEach(a=>{ if(a[3]) (S.talks[a[0]]=S.talks[a[0]]||[]).push({pid, tm:a[3], title:a[1]}); }); } for(const pid in j.appear){ j.appear[pid].forEach(a=>{ (S.sessPeople[a[0]]=S.sessPeople[a[0]]||new Set()).add(pid); }); } if(state.tab==='schedule'||state.tab==='people') render(); }).catch(()=>{ S={sessions:[],appear:{},byPerson:{},sessPeople:{},failed:true}; });
+const sessReady = fetch('sessions.json').then(r=>r.json()).then(j=>{ S=j; S.byPerson=j.appear; S.sessPeople={}; S.talks={}; for(const pid in j.appear){ j.appear[pid].forEach(a=>{ if(a[3]) (S.talks[a[0]]=S.talks[a[0]]||[]).push({pid, tm:a[3], title:a[1]}); }); } for(const pid in j.appear){ j.appear[pid].forEach(a=>{ (S.sessPeople[a[0]]=S.sessPeople[a[0]]||new Set()).add(pid); }); } if(state.tab==='schedule'||state.tab==='people'||state.tab==='met') render(); }).catch(()=>{ S={sessions:[],appear:{},byPerson:{},sessPeople:{},failed:true}; });
 
 /* ---------- State + storage ---------- */
-const state = { readonly:false, tab:'people', q:'', role:'all', metOnly:false, day:null, dirOnly:true, starredOnly:false, limit:60, contacts:{}, extras:{}, plan:new Set(ls.get('cns26.plan.cache',[])), dbOk:null };
+const state = { readonly:false, tab:'people', q:'', role:'all', metOnly:false, wantOnly:false, day:null, dirOnly:true, starredOnly:false, limit:60, contacts:{}, extras:{}, plan:new Set(ls.get('cns26.plan.cache',[])), dbOk:null };
 const pending = ls.get('cns26.pending',{}); // offline-safe write queue
 Object.keys(pending).forEach(id=>{ state.contacts[id]=Object.assign({},state.contacts[id],pending[id]); });
 let db=null, assets=null;
@@ -253,8 +261,20 @@ async function saveExtra(id, body){ state.extras[id]=body; softRender(); if(db){
 
 /* ---------- Helpers ---------- */
 const isMet = id => !!(state.contacts[id] && state.contacts[id].met);
+const isWant = id => !state.readonly && !!(state.contacts[id] && state.contacts[id].want);
+const offProg = id => !!(S && !S.failed && !(S.byPerson[id] && S.byPerson[id].length));
+const ABSENT = '⊘';
+const isLead = p => !!p && (p.r==='Chair' || p.r==='Program Director' || p.r2==='Program Director');
+const isKnow = id => !state.readonly && !!(state.contacts[id] && state.contacts[id].know);
+function SP(si){ const all=S.sessPeople[si]; if(!all) return null; const out=new Set([...all].filter(id=>isLead(byId.get(id))||isWant(id))); return out.size? out : null; }
+function absentTag(id){ return offProg(id)? el('span',{class:'absent',title:'Not on the CNS 2026 program: likely not attending'},' '+ABSENT) : null; }
+function nextAppear(id){ const rows=(S&&S.byPerson[id])||[]; if(!rows.length) return null; const n=nowET(); const ni=DAYS.findIndex(d=>d[0]===n.day);
+  const xs=rows.map(a=>{ const s=S.sessions[a[0]]; const di=DAYS.findIndex(d=>d[0]===s.d); const sl=parseSlot(s.tm)||[timeVal(s.tm),timeVal(s.tm)+60]; const st=a[3]?timeVal(a[3]):sl[0]; return {a,s,di,st,en:a[3]?st+15:sl[1]}; }).sort((x,y)=>x.di-y.di||x.st-y.st);
+  const up=xs.find(x=> ni<0 ? x.di>=0 : (x.di>ni || (x.di===ni && x.en>=n.min)));
+  if(!up) return {done:true}; const dd=DAYS[up.di]; const now= ni===up.di && up.st<=n.min;
+  return {now, txt:(now?'Now':(ni===up.di?'Today':dd[1]))+' '+fmtMin(up.st)+(up.s.r?' · '+up.s.r:'')+' · '+(up.a[1]||up.s.t)}; }
 function refreshCounts(){ const n = Object.keys(state.contacts).filter(isMet).length + Object.keys(state.extras).length; $('#metCount').textContent = n? ' '+n : ''; }
-function matches(p){ if(state.role!=='all' && p.r!==state.role && p.r2!==state.role) return false; if(state.metOnly && !isMet(p.id)) return false; if(state.q){ return state.q.split(/\s+/).every(t=>p._hay.includes(t)); } return true; }
+function matches(p){ if(state.role!=='all' && p.r!==state.role && p.r2!==state.role) return false; if(state.metOnly && !isMet(p.id)) return false; if(state.wantOnly && !isWant(p.id)) return false; if(state.q){ return state.q.split(/\s+/).every(t=>p._hay.includes(t)); } return true; }
 function progLine(p){ const g=PROGS[p.pg]; return g.name; }
 function sortPeople(arr){ return arr.sort((a,b)=> (ROLE_ORDER[a.r]-ROLE_ORDER[b.r]) || a._last.localeCompare(b._last)); }
 
@@ -265,7 +285,7 @@ function personRow(p){
   return el('button',{class:'row',onclick:()=>openPerson(p.id)},
     avatar(p),
     el('div',{class:'txt'},
-      el('div',{class:'nm'}, p.n),
+      el('div',{class:'nm'}, isWant(p.id)? el('span',{class:'want',title:'Looking for'},'★ '):null, p.n, absentTag(p.id), isKnow(p.id)? el('span',{class:'known'},'Know'):null),
       el('div',{class:'sub'}, el('span',{class:'role '+roleCls(p.r)}, ROLE_SHORT[p.r]+(p.r2?' + '+ROLE_SHORT[p.r2]:'')), ' ', progLine(p)),
       el('div',{class:'sub2'}, [p.fl?'⚠ Confirm role':null, p.s, appear? appear+' CNS session'+(appear>1?'s':''):null].filter(Boolean).join(' · ') || PROGS[p.pg].city+', '+PROGS[p.pg].state)
     ),
@@ -274,11 +294,11 @@ function personRow(p){
 }
 function renderPeople(m){
   const roles=[['all','All'],['Chair','Chairs'],['Program Director','PDs'],['Associate Program Director','APDs'],['Faculty','Notable faculty']];
-  m.append(el('div',{class:'chips'}, roles.map(([v,l])=>el('button',{class:'chip','aria-pressed':String(state.role===v),onclick:()=>{state.role=v;state.limit=60;render();}},l)), el('button',{class:'chip','aria-pressed':String(state.metOnly),onclick:()=>{state.metOnly=!state.metOnly;render();}},'Met ✓')));
+  m.append(el('div',{class:'chips'}, roles.map(([v,l])=>el('button',{class:'chip','aria-pressed':String(state.role===v),onclick:()=>{state.role=v;state.limit=60;render();}},l)), state.readonly?null:el('button',{class:'chip','aria-pressed':String(state.wantOnly),onclick:()=>{state.wantOnly=!state.wantOnly;render();}},'★ Looking for'), el('button',{class:'chip','aria-pressed':String(state.metOnly),onclick:()=>{state.metOnly=!state.metOnly;render();}},'Met ✓')));
   const list = sortPeople(PEOPLE.filter(matches));
   // when searching, rank name hits first
   if(state.q){ const q=state.q; list.sort((a,b)=>{ const an=norm(a.n).includes(q)?0:1, bn=norm(b.n).includes(q)?0:1; return an-bn || (ROLE_ORDER[a.r]-ROLE_ORDER[b.r]) || a._last.localeCompare(b._last); }); }
-  m.append(el('p',{class:'meta'}, list.length+' of '+PEOPLE.length+' people · '+PROGS.length+' programs'));
+  m.append(el('p',{class:'meta'}, list.length+' of '+PEOPLE.length+' people · '+PROGS.length+' programs', S&&!S.failed? el('span',{class:'legend'}, ' · '+ABSENT+' not on the CNS program, likely not here'):null));
   if(!list.length){ m.append(el('div',{class:'empty'}, el('b',{},'No one matches'), 'Try a last name, a city, or a program like “Barrow”. Met someone not listed? Use “Add person” on the Met tab.')); return; }
   const box=el('div',{class:'list'}); list.slice(0,state.limit).forEach(p=>box.append(personRow(p))); m.append(box);
   if(list.length>state.limit) m.append(el('button',{class:'more',onclick:()=>{state.limit+=120;render();}},'Show more ('+(list.length-state.limit)+')'));
@@ -307,14 +327,14 @@ function fmtMin(v){ let h=Math.floor(v/60), m=v%60; const ap=h>=12?'pm':'am'; h=
 function nowET(){ if(window.__nowOverride) return window.__nowOverride; try{ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',month:'long',day:'2-digit',year:'numeric',hour:'numeric',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).map(p=>[p.type,p.value])); return {day:parts.month+' '+parts.day+', '+parts.year, min:(+parts.hour)*60+(+parts.minute)}; }catch(e){ return {day:'',min:0}; } }
 function isLiveDay(){ const n=nowET(); return DAYS.some(d=>d[0]===n.day); }
 function sessionCard(si, live){
-  const s=S.sessions[si]; const ppl=[...(S.sessPeople[si]||[])].map(id=>byId.get(id)).filter(Boolean); sortPeople(ppl);
+  const s=S.sessions[si]; const ppl=[...(SP(si)||[])].map(id=>byId.get(id)).filter(Boolean); sortPeople(ppl);
   const starred=state.plan.has(s.id);
   return el('div',{class:'sess'},
     el('div',{class:'tm'}, s.tm, s.r? el('span',{class:'rm'}, s.r):null),
     el('div',{class:'st2'}, live? liveLine(si, live):null,
       el('div',{style:'display:flex;justify-content:space-between;gap:6px;align-items:flex-start'}, el('div',{class:'ttl'}, s.t), el('button',{class:'star','aria-pressed':String(starred),'aria-label':starred?'Remove from my plan':'Add to my plan',onclick:e=>{ e.stopPropagation(); starred?state.plan.delete(s.id):state.plan.add(s.id); savePlan(); render(); }}, starred?'★':'☆')),
       el('div',{class:'ty'}, [s.ty, s.tr].filter(Boolean).join(' · ')),
-      ppl.length? el('div',{class:'ppl'}, ppl.slice(0,12).map(p=>el('button',{class:'pchip',onclick:()=>openPerson(p.id)}, avatar(p), el('span',{}, p.n.replace(/,.*$/,''))))):null,
+      ppl.length? el('div',{class:'ppl'}, ppl.slice().sort((x,y)=>isWant(y.id)-isWant(x.id)).slice(0,12).map(p=>el('button',{class:'pchip'+(isWant(p.id)?' want':''),onclick:()=>openPerson(p.id)}, avatar(p), el('span',{}, (isWant(p.id)?'★ ':'')+p.n.replace(/,.*$/,''))))):null,
       ppl.length>12? el('div',{class:'ty'}, '+'+(ppl.length-12)+' more from the directory'):null,
       live? talkLines(si, live):null
     ));
@@ -322,17 +342,17 @@ function sessionCard(si, live){
 function liveLine(si, n){ const sl=parseSlot(S.sessions[si].tm); if(!sl) return null; const [a,b]=sl;
   if(a<=n.min && n.min<b) return el('div',{class:'live now'}, el('span',{class:'dot'}), 'Now · ends '+fmtMin(b));
   const d=a-n.min; return el('div',{class:'live soon'}, d<60? 'Starts in '+d+' min' : 'Starts at '+fmtMin(a)); }
-function talkLines(si, n){ const t=(S.talks[si]||[]).map(x=>({...x, sl:parseSlot(x.tm)})).filter(x=>x.sl && x.sl[1]>n.min && x.sl[0]<=n.min+120).sort((a,b)=>a.sl[0]-b.sl[0]).slice(0,6);
+function talkLines(si, n){ const t=(S.talks[si]||[]).filter(x=>isLead(byId.get(x.pid))||isWant(x.pid)).map(x=>({...x, sl:parseSlot(x.tm)})).filter(x=>x.sl && x.sl[1]>n.min && x.sl[0]<=n.min+120).sort((a,b)=>a.sl[0]-b.sl[0]).slice(0,6);
   if(!t.length) return null; return el('div',{class:'talks'}, t.map(x=>{ const p=byId.get(x.pid); const on=x.sl[0]<=n.min; return el('button',{class:'talk'+(on?' on':''),onclick:()=>openPerson(x.pid)}, el('span',{class:'tt'}, on?'Speaking now':fmtMin(x.sl[0])), ' ', el('b',{}, p.n.replace(/,.*$/,'')), x.title? ' · '+x.title:''); })); }
 function renderLive(m){
   const n=nowET();
   if(!DAYS.some(d=>d[0]===n.day)){ m.append(el('div',{class:'empty'}, el('b',{},'Live view runs during the meeting'), 'CNS 2026 runs Oct 31–Nov 4 in Washington, DC (Eastern time). Pick a day above to browse the program.')); return; }
-  const today=S.sessions.map((s,i)=>i).filter(i=>S.sessions[i].d===n.day && (!state.dirOnly || (S.sessPeople[i]&&S.sessPeople[i].size)) && parseSlot(S.sessions[i].tm));
+  const today=S.sessions.map((s,i)=>i).filter(i=>S.sessions[i].d===n.day && (!state.dirOnly || SP(i)) && parseSlot(S.sessions[i].tm));
   const nowL=today.filter(i=>{ const [a,b]=parseSlot(S.sessions[i].tm); return a<=n.min && n.min<b; }).sort((x,y)=>parseSlot(S.sessions[x].tm)[1]-parseSlot(S.sessions[y].tm)[1]);
   const next=today.filter(i=>{ const a=parseSlot(S.sessions[i].tm)[0]; return a>n.min && a<=n.min+180; }).sort((x,y)=>parseSlot(S.sessions[x].tm)[0]-parseSlot(S.sessions[y].tm)[0]);
-  m.append(el('p',{class:'meta'}, 'Updated '+fmtMin(n.min)+' ET · refreshes every minute'+(state.dirOnly?' · sessions with directory faculty':'')));
+  m.append(el('p',{class:'meta'}, 'Updated '+fmtMin(n.min)+' ET · refreshes every minute'+(state.dirOnly?' · sessions with chairs & PDs':'')));
   m.append(el('div',{class:'st'},'HAPPENING NOW'));
-  if(nowL.length){ const l=el('div',{class:'list'}); nowL.forEach(i=>l.append(sessionCard(i,n))); m.append(l); } else m.append(el('div',{class:'empty'},'Nothing in session right now'+(state.dirOnly?' with directory faculty':'')+'.'));
+  if(nowL.length){ const l=el('div',{class:'list'}); nowL.forEach(i=>l.append(sessionCard(i,n))); m.append(l); } else m.append(el('div',{class:'empty'},'Nothing in session right now'+(state.dirOnly?' with a chair or PD':'')+'.'));
   m.append(el('div',{class:'st'},'NEXT 3 HOURS'));
   if(next.length){ const l=el('div',{class:'list'}); next.forEach(i=>l.append(sessionCard(i,n))); m.append(l); } else m.append(el('div',{class:'empty'},'Nothing else scheduled in the next 3 hours.'));
 }
@@ -342,20 +362,26 @@ function renderSchedule(m){
   if(!state.day) state.day=isLiveDay()?'now':todayKey();
   m.append(el('div',{class:'days'}, el('button',{class:'day live-day','aria-pressed':String(state.day==='now'),onclick:()=>{state.day='now';render();}}, el('b',{},'Now'), el('span',{},'live')), DAYS.map(([k,a,b])=>el('button',{class:'day','aria-pressed':String(state.day===k),onclick:()=>{state.day=k;render();}}, el('b',{},a), el('span',{},b)))));
   m.append(el('div',{class:'chips'},
-    el('button',{class:'chip','aria-pressed':String(state.dirOnly),onclick:()=>{state.dirOnly=!state.dirOnly;render();}},'With directory faculty'),
+    el('button',{class:'chip','aria-pressed':String(state.dirOnly),onclick:()=>{state.dirOnly=!state.dirOnly;render();}},'Chairs & PDs'),
     el('button',{class:'chip','aria-pressed':String(state.starredOnly),onclick:()=>{state.starredOnly=!state.starredOnly;render();}},'★ My plan')));
   if(state.day==='now'){ renderLive(m); return; }
   const q=state.q;
-  let idx=S.sessions.map((s,i)=>i).filter(i=>{ const s=S.sessions[i]; if(s.d!==state.day) return false; if(state.starredOnly && !state.plan.has(s.id)) return false; if(state.dirOnly && !state.starredOnly && !(S.sessPeople[i]&&S.sessPeople[i].size)) return false;
-    if(q){ const hay=norm(s.t+' '+s.ty+' '+(s.tr||'')+' '+[...(S.sessPeople[i]||[])].map(id=>byId.get(id).n).join(' ')); if(!q.split(/\s+/).every(t=>hay.includes(t))) return false; } return true; });
+  let idx=S.sessions.map((s,i)=>i).filter(i=>{ const s=S.sessions[i]; if(s.d!==state.day) return false; if(state.starredOnly && !state.plan.has(s.id)) return false; if(state.dirOnly && !state.starredOnly && !SP(i)) return false;
+    if(q){ const hay=norm(s.t+' '+s.ty+' '+(s.tr||'')+' '+[...(SP(i)||[])].map(id=>byId.get(id).n).join(' ')); if(!q.split(/\s+/).every(t=>hay.includes(t))) return false; } return true; });
   idx.sort((a,b)=>timeVal(S.sessions[a].tm)-timeVal(S.sessions[b].tm));
-  m.append(el('p',{class:'meta'}, idx.length+' sessions'+(state.dirOnly&&!state.starredOnly?' with people from the directory':'')+'. Times as listed in the CNS program.'));
-  if(!idx.length){ m.append(el('div',{class:'empty'},el('b',{},state.starredOnly?'No starred sessions this day':'No sessions match'), state.starredOnly?'Tap ☆ on any session to add it to your plan.':'Turn off “With directory faculty” to see every session.')); return; }
+  m.append(el('p',{class:'meta'}, idx.length+' sessions'+(state.dirOnly&&!state.starredOnly?' with chairs & PDs':'')+'. Times as listed in the CNS program.'));
+  if(!idx.length){ m.append(el('div',{class:'empty'},el('b',{},state.starredOnly?'No starred sessions this day':'No sessions match'), state.starredOnly?'Tap ☆ on any session to add it to your plan.':'Turn off “Chairs & PDs” to see every session.')); return; }
   const l=el('div',{class:'list'}); idx.forEach(i=>l.append(sessionCard(i))); m.append(l);
 }
 function metEntries(){ const out=[]; for(const id in state.contacts){ if(isMet(id) && byId.get(id)) out.push({kind:'dir',id,p:byId.get(id),c:state.contacts[id]}); } for(const id in state.extras){ out.push({kind:'extra',id,x:state.extras[id]}); } out.sort((a,b)=> ((b.c||b.x).metAt||'').localeCompare((a.c||a.x).metAt||'')); return out; }
 function followupText(entries){ return entries.map(e=>{ if(e.kind==='dir'){ const g=PROGS[e.p.pg]; return [e.p.n+(e.p.cred?', '+e.p.cred:''), e.p.r+' · '+g.name, e.p.e?('Email: '+e.p.e):'Email: not listed', e.c.notes?('Notes: '+e.c.notes):null, e.c.emailed?'Status: emailed':'Status: follow up'].filter(Boolean).join('\n'); } const x=e.x; return [x.name, x.org||'', x.email?('Email: '+x.email):'', x.notes?('Notes: '+x.notes):'', x.emailed?'Status: emailed':'Status: follow up'].filter(Boolean).join('\n'); }).join('\n\n'); }
 function renderMet(m){
+  const want=PEOPLE.filter(p=>isWant(p.id) && !isMet(p.id)).sort((a,b)=>{ const na=nextAppear(a.id), nb=nextAppear(b.id); const ka=na&&!na.done?(na.now?0:1):2, kb=nb&&!nb.done?(nb.now?0:1):2; return ka-kb || a._last.localeCompare(b._last); });
+  const found=PEOPLE.filter(p=>isWant(p.id) && isMet(p.id)).length;
+  m.append(el('div',{class:'sec',style:'margin-top:4px'},'Looking for', el('span',{class:'meta',style:'font-weight:400;margin-left:6px;text-transform:none;letter-spacing:0'}, want.length+' to find'+(found?' · '+found+' found':''))));
+  if(!want.length) m.append(el('div',{class:'empty'}, el('b',{}, found?'Everyone on your list is found':'No one on your list yet'), 'Open anyone in People and tap “☆ Look for”. They get a ★ everywhere, and here you will see where each one is next.'));
+  else { const wl=el('div',{class:'list'}); want.forEach(p=>{ const r=personRow(p); const nx=nextAppear(p.id); r.querySelector('.sub2').textContent= !nx? ABSENT+' Not on the program, likely not here' : nx.done? 'No more sessions at CNS 2026' : (nx.now?'● ':'Next: ')+nx.txt; if(nx&&nx.now) r.querySelector('.sub2').classList.add('nowtxt'); wl.append(r); }); m.append(wl); }
+  m.append(el('div',{class:'sec'},'Met'));
   const entries=metEntries(); const todo=entries.filter(e=>!(e.c||e.x).emailed);
   m.append(el('div',{class:'sumcard'}, el('div',{}, el('b',{}, String(entries.length)), ' met · ', el('b',{}, String(todo.length)), ' to email'), entries.length? el('button',{class:'btn sm',onclick:()=>copy(followupText(entries))},'Copy follow-up list'):null));
   if(!entries.length){ m.append(el('div',{class:'empty'}, el('b',{},'No one marked as met yet'), 'Open anyone in People and tap “I met them”. Your notes and photos sync here for follow-up emails.')); }
@@ -384,11 +410,14 @@ function buildPerson(sh,id){
   let nt; notes.addEventListener('input',()=>{ clearTimeout(nt); savedMsg.textContent='Saving…'; nt=setTimeout(()=>{ const patch={notes:notes.value}; if(!c().met && notes.value.trim()){ patch.met=true; patch.metAt=new Date().toISOString(); metBtn.className='btn on'; metBtn.textContent='✓ Met'; } saveContact(id,patch); savedMsg.textContent= state.dbOk?'Saved':'Saved on this phone; syncs when online'; },700); });
   const emailed=el('input',{type:'checkbox',id:'em-'+id}); emailed.checked=!!c().emailed; emailed.addEventListener('change',()=>saveContact(id,{emailed:emailed.checked}));
   const big=avatar(p,{now:true});
-  w.append(el('div',{class:'hero'}, big, el('div',{style:'min-width:0'}, el('h2',{},p.n), p.cred?el('div',{class:'cred'},p.cred):null, el('span',{class:'role '+roleCls(p.r)}, p.r+(p.r2?' · '+p.r2:'')), el('div',{class:'ttl'}, p.t))));
+  w.append(el('div',{class:'hero'}, big, el('div',{style:'min-width:0'}, el('h2',{},isWant(id)?el('span',{class:'want'},'★ '):null,p.n,absentTag(id)), p.cred?el('div',{class:'cred'},p.cred):null, el('span',{class:'role '+roleCls(p.r)}, p.r+(p.r2?' · '+p.r2:'')), el('div',{class:'ttl'}, p.t))));
   if(p.fl) w.append(el('div',{class:'note flag'},'⚠ ', p.fl));
+  if(offProg(id)) w.append(el('div',{class:'note'}, ABSENT+' Not on the CNS 2026 program (no talk, panel or moderator role), so likely not attending.'));
   if(p.pf) w.append(el('div',{class:'note'},'Public figure: no headshot is stored for this person. Use the profile link, or add your own photo.'));
+  const wantBtn=el('button',{class:'btn'+(isWant(id)?' want-on':''),onclick:()=>{ const now=!isWant(id); saveContact(id,{want:now}); wantBtn.className='btn'+(now?' want-on':''); wantBtn.textContent=now?'★ Looking for':'☆ Look for'; toast(now?'Added to Looking for':'Removed from Looking for'); }}, isWant(id)?'★ Looking for':'☆ Look for');
+  const knowBtn=el('button',{class:'btn'+(isKnow(id)?' know-on':''),onclick:()=>{ const now=!isKnow(id); saveContact(id,{know:now}); knowBtn.className='btn'+(now?' know-on':''); knowBtn.textContent=now?'✓ Know them':'Know them'; toast(now?'Marked as someone you know':'Unmarked'); }}, isKnow(id)?'✓ Know them':'Know them');
   if(state.readonly) w.append(el('div',{class:'btns'}, p.u? el('a',{class:'btn',href:p.u,target:'_blank',rel:'noopener'},'Profile ↗'):null));
-  else w.append(el('div',{class:'btns'}, metBtn, p.u? el('a',{class:'btn',href:p.u,target:'_blank',rel:'noopener'},'Profile ↗'):null, assets? el('button',{class:'btn',onclick:()=>pickPhoto(async blob=>{ const r=await assets.upload(blob,{type:'image/jpeg'}); saveContact(id,{photo:r.id}); toast('Photo added'); buildPerson(sh,id); })}, c().photo?'Replace photo':'Add my photo'):null));
+  else w.append(el('div',{class:'btns'}, metBtn, wantBtn, knowBtn, p.u? el('a',{class:'btn',href:p.u,target:'_blank',rel:'noopener'},'Profile ↗'):null, assets? el('button',{class:'btn',onclick:()=>pickPhoto(async blob=>{ const r=await assets.upload(blob,{type:'image/jpeg'}); saveContact(id,{photo:r.id}); toast('Photo added'); buildPerson(sh,id); })}, c().photo?'Replace photo':'Add my photo'):null));
   const kv=el('dl',{class:'kv'});
   const add=(k,v)=>{ if(v) kv.append(el('div',{}, el('dt',{},k), el('dd',{},v))); };
   add('Program', el('button',{class:'back',style:'padding:0;font-size:15px;text-align:left',onclick:()=>openProgram(p.pg)}, g.name));
@@ -434,7 +463,7 @@ q.addEventListener('input',()=>{ qx.hidden=!q.value; clearTimeout(qt); qt=setTim
 qx.addEventListener('click',()=>{ q.value=''; qx.hidden=true; state.q=''; render(); q.focus(); });
 addEventListener('keydown',e=>{ if(e.key==='Escape' && !$('#sheet').hidden) closeSheet(); });
 refreshCounts(); render();
-setInterval(()=>{ if(state.tab==='schedule' && state.day==='now' && $('#sheet').hidden){ const y=scrollY; render(); scrollTo(0,y); } }, 60000);
+setInterval(()=>{ if(((state.tab==='schedule' && state.day==='now')||state.tab==='met') && $('#sheet').hidden){ const y=scrollY; render(); scrollTo(0,y); } }, 60000);
 function setReadonly(label){ state.readonly=true; setSync(label); document.querySelector('nav.tabs button[data-tab=met]').hidden=true; document.querySelector('nav.tabs').style.gridTemplateColumns='repeat(3,1fr)'; if(state.tab==='met') state.tab='people'; render(); }
 const STATIC = !!document.querySelector('meta[name="cns-static"]');
 if(STATIC){ setReadonly('Lab edition'); if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js'); }catch(e){} } }
